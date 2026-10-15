@@ -3,23 +3,30 @@ import {
   addNumbers,
   addsLeft,
   collapseEmptyRows,
+  dismissHint,
   hasValidPair,
   isGameOver,
   isValidPair,
+  isWon,
   MATCH_POINTS,
+  requestHint,
   startGame,
   tapCell,
+  undo,
+  UNDO_LIMIT,
   valuesMatch,
   type GameState,
 } from "./match";
 import { parseGrid } from "../test/grid";
+
+// Undo, hints and the win check.
 
 const at = (row: number, col: number) => ({ row, col });
 
 const ROW = (digits: string) => [...digits].map(Number);
 
 function stateOf(rows: string[], extra: Partial<GameState> = {}): GameState {
-  return { grid: parseGrid(rows), selected: null, score: 0, reserve: [], ...extra };
+  return { grid: parseGrid(rows), selected: null, score: 0, reserve: [], history: [], hintSpent: false, hint: null, ...extra };
 }
 
 describe("valuesMatch", () => {
@@ -204,5 +211,110 @@ describe("startGame", () => {
     expect(game.selected).toBeNull();
     expect(game.score).toBe(0);
     expect(addsLeft(game)).toBe(1);
+  });
+});
+
+describe("undo", () => {
+  it("reverses the last match and restores both cleared cells", () => {
+    const matched = tapCell(stateOf(["5...5...."], { selected: at(0, 0) }), at(0, 4));
+    const undone = undo(matched);
+    expect(undone.grid[0]).toEqual([5, null, null, null, 5, null, null, null, null]);
+    expect(undone.score).toBe(0);
+    expect(undone.history).toHaveLength(0);
+  });
+
+  it("restores a row that was collapsed after the match", () => {
+    const matched = tapCell(stateOf(["5.5......", "1........"], { selected: at(0, 0) }), at(0, 2));
+    const collapsed = collapseEmptyRows(matched);
+    expect(collapsed.grid).toHaveLength(1);
+    const undone = undo(collapsed);
+    expect(undone.grid).toHaveLength(2);
+    expect(undone.grid[0]![0]).toBe(5);
+  });
+
+  it("reverses an added row and gives its reserve row back", () => {
+    const reserve = [[1, 2, 3, 4, 5, 6, 7, 8, 9]];
+    const added = addNumbers(startGame(parseGrid(["........."]), reserve));
+    const undone = undo(added);
+    expect(undone.grid).toHaveLength(1);
+    expect(undone.reserve).toEqual(reserve);
+  });
+
+  it("steps back through several actions in order", () => {
+    let state = tapCell(stateOf(["5.5.1.1.."], { selected: at(0, 0) }), at(0, 2));
+    state = tapCell(state, at(0, 4));
+    state = tapCell(state, at(0, 6));
+    expect(state.score).toBe(2 * MATCH_POINTS);
+    expect(state.history).toHaveLength(2);
+
+    const once = undo(state);
+    expect(once.score).toBe(MATCH_POINTS);
+    expect(once.history).toHaveLength(1);
+
+    const twice = undo(once);
+    expect(twice.score).toBe(0);
+    expect(twice.history).toHaveLength(0);
+  });
+
+  it("does nothing when there is nothing to undo", () => {
+    const state = stateOf(["5........"]);
+    expect(undo(state)).toBe(state);
+  });
+
+  it("keeps at most UNDO_LIMIT steps", () => {
+    const reserve = Array.from({ length: UNDO_LIMIT + 5 }, () => [1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    let state = startGame(parseGrid(["........."]), reserve);
+    while (state.reserve.length > 0) state = addNumbers(state);
+    expect(state.history).toHaveLength(UNDO_LIMIT);
+  });
+});
+
+describe("hints", () => {
+  it("highlights a legal pair when requested", () => {
+    const state = requestHint(stateOf(["1.9......"]));
+    expect(state.hint).toEqual([at(0, 0), at(0, 2)]);
+    expect(state.hintSpent).toBe(true);
+  });
+
+  it("does nothing when no legal pair exists", () => {
+    const state = stateOf(["12......."]);
+    expect(requestHint(state)).toBe(state);
+  });
+
+  it("is spent once shown and cannot be requested again this stage", () => {
+    const shown = requestHint(stateOf(["11......."]));
+    expect(requestHint(dismissHint(shown)).hintSpent).toBe(true);
+    expect(requestHint(shown)).toBe(shown);
+  });
+
+  it("gives the hint back when dismissed without using it", () => {
+    const shown = requestHint(stateOf(["11......."]));
+    const dismissed = dismissHint(shown);
+    expect(dismissed.hint).toBeNull();
+    expect(dismissed.hintSpent).toBe(false);
+    expect(requestHint(dismissed).hint).not.toBeNull();
+  });
+
+  it("clears the highlight when the hinted pair is matched", () => {
+    const shown = requestHint(stateOf(["11......."], { selected: at(0, 0) }));
+    const matched = tapCell({ ...shown, selected: at(0, 0) }, at(0, 1));
+    expect(matched.hint).toBeNull();
+    expect(matched.hintSpent).toBe(true);
+  });
+
+  it("is available again after a new row is added", () => {
+    const spent = requestHint(stateOf(["11......."], { reserve: [[1, 2, 3, 4, 5, 6, 7, 8, 9]] }));
+    const next = addNumbers(dismissHint({ ...spent, hintSpent: true }));
+    expect(next.hintSpent).toBe(false);
+  });
+});
+
+describe("isWon", () => {
+  it("is true once every cell is cleared", () => {
+    expect(isWon(stateOf([".........", "........."]))).toBe(true);
+  });
+
+  it("is false while any cell is filled", () => {
+    expect(isWon(stateOf(["........1"]))).toBe(false);
   });
 });

@@ -16,6 +16,10 @@ export interface BoardProps {
   grid: Grid;
   selected: Pos | null;
   match: MatchEvent | null;
+  /** The pair being highlighted as a hint, if any. */
+  hint: [Pos, Pos] | null;
+  /** True once the board is fully cleared. Fires the win burst once. */
+  won: boolean;
   onTap: (pos: Pos) => void;
 }
 
@@ -34,10 +38,24 @@ interface Pop {
  * with an animation. A match fires a particle burst from each cleared cell and
  * a `+N` pop-up between them.
  */
-export function Board({ grid, selected, match, onTap }: BoardProps) {
+export function Board({ grid, selected, match, hint, won, onTap }: BoardProps) {
   const boardRef = useRef<HTMLDivElement>(null);
   const particlesRef = useRef<ParticleLayerHandle>(null);
   const [pops, setPops] = useState<Pop[]>([]);
+  // A board that is already won when it mounts (a reload) does not celebrate again.
+  const wonOnMount = useRef(won);
+
+  useEffect(() => {
+    const board = boardRef.current;
+    if (!won || wonOnMount.current || !board) return;
+    const x = board.offsetWidth / 2;
+    const y = board.offsetHeight / 2;
+    for (let i = 0; i < 3; i++) {
+      setTimeout(() => {
+        particlesRef.current?.burst(x, y, BURST_COLOURS, { count: 40, speed: [160, 380], size: [4, 9], life: 1.2 });
+      }, i * 180);
+    }
+  }, [won]);
 
   useEffect(() => {
     const board = boardRef.current;
@@ -66,20 +84,22 @@ export function Board({ grid, selected, match, onTap }: BoardProps) {
         >
           {row.map((cell, c) => {
             const isSelected = selected?.row === r && selected?.col === c;
+            const isHinted = hint?.some((p) => p.row === r && p.col === c) ?? false;
             return (
               <button
                 key={c}
                 type="button"
                 data-pos={`${r}-${c}`}
                 data-selected={isSelected || undefined}
+                data-hint={isHinted || undefined}
                 disabled={cell === null}
                 aria-label={cell === null ? `Cleared, row ${r + 1}, column ${c + 1}` : `${cell}, row ${r + 1}, column ${c + 1}`}
                 onClick={() => onTap({ row: r, col: c })}
                 className="aspect-square min-h-10 rounded-lg text-lg font-bold"
                 style={{
-                  background: cell === null ? "transparent" : isSelected ? "var(--accent)" : "var(--panel)",
+                  background: cell === null ? "transparent" : isSelected ? "var(--accent)" : isHinted ? "var(--accent-soft)" : "var(--panel)",
                   color: isSelected ? "#ffffff" : "var(--ink)",
-                  border: cell === null ? "1px dashed var(--line)" : "1px solid var(--line)",
+                  border: cell === null ? "1px dashed var(--line)" : isHinted ? "2px solid var(--accent)" : "1px solid var(--line)",
                 }}
               >
                 {cell ?? ""}

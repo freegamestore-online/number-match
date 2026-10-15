@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GameShell, GameTopbar, GameAuth } from "@freegamestore/games";
 import { Board, type MatchEvent } from "./components/Board";
 import { HAPTICS, useHaptics } from "./feel";
@@ -9,12 +9,16 @@ import {
   addNumbers,
   addsLeft,
   collapseEmptyRows,
+  dismissHint,
   isEmptyRow,
   isGameOver,
-  startGame,
+  isWon,
+  requestHint,
   tapCell,
+  undo,
   type GameState,
 } from "./game/match";
+import { clearProgress, loadProgress, progressKey, saveProgress } from "./game/progress";
 import { ADD_ALLOWANCE, type Pos } from "./game/grid";
 
 /** How long a cleared row stays visible, shrinking, before the grid collapses. Matches the CSS animation. */
@@ -57,7 +61,13 @@ export default function App() {
             Deal #{deal.number} · next
           </button>
         </div>
-        <PlayDeal key={`${choice}-${dateKey}-${round}`} deal={deal} dateKey={isDaily ? dateKey : null} onRestart={() => setRound((r) => r + 1)} />
+        <PlayDeal
+          key={`${choice}-${dateKey}-${round}`}
+          deal={deal}
+          dateKey={isDaily ? dateKey : null}
+          onRestart={() => setRound((r) => r + 1)}
+          onNext={next}
+        />
       </main>
     </GameShell>
   );
@@ -68,14 +78,36 @@ interface PlayDealProps {
   /** Set for the daily deal: its best score is kept and submitted. Null for practice deals. */
   dateKey: string | null;
   onRestart: () => void;
+  onNext: () => void;
 }
 
-function PlayDeal({ deal, dateKey, onRestart }: PlayDealProps) {
-  const [game, setGame] = useState<GameState>(() => startGame(deal.grid, deal.reserve));
+function PlayDeal({ deal, dateKey, onRestart, onNext }: PlayDealProps) {
+  const key = progressKey(deal, dateKey);
+  const [game, setGame] = useState<GameState>(() => loadProgress(key, deal));
   const [match, setMatch] = useState<MatchEvent | null>(null);
   const haptics = useHaptics();
   const [dailyBest, updateDailyBest] = useHighScore(`number-match:daily-best:${dateKey ?? "practice"}`);
   const over = isGameOver(game);
+  const won = isWon(game);
+
+  // Save after every change, so a refresh resumes this board.
+  useEffect(() => {
+    saveProgress(key, game);
+  }, [key, game]);
+
+  // A game that is already over when it loads (a reload) was submitted earlier,
+  // so only a game that ends during play submits its score.
+  const endedOnLoad = useRef(over);
+  const submitted = useRef(false);
+  useEffect(() => {
+    if (!over || endedOnLoad.current || submitted.current) return;
+    submitted.current = true;
+    if (dateKey) {
+      updateDailyBest(game.score);
+      if (game.score > 0) void submitDailyScore(dateKey, game.score);
+    }
+    // updateDailyBest changes identity each render; the game ending is what matters.
+  }, [over, dateKey, game.score]);
 
   // Each tap runs through the engine. A match is detected by the score rising,
   // which drives the burst, the pop-up and the clear pulse. The score only rises,
@@ -98,14 +130,8 @@ function PlayDeal({ deal, dateKey, onRestart }: PlayDealProps) {
     return () => clearTimeout(id);
   }, [hasEmpty, game.grid]);
 
-  // Game over runs once: record the daily best and submit it. Submission is quiet,
-  // so an "Invalid game" or signed-out response changes nothing on screen.
-  useEffect(() => {
-    if (!over || !dateKey) return;
-    updateDailyBest(game.score);
-    if (game.score > 0) void submitDailyScore(dateKey, game.score);
-    // updateDailyBest changes identity each render; the game-over event is what matters.
-  }, [over, dateKey, game.score]);
+  const button = "rounded-full px-5 py-2 font-semibold disabled:opacity-40";
+  const accent = { background: "var(--accent)", color: "#ffffff" };
 
   return (
     <>
@@ -113,24 +139,56 @@ function PlayDeal({ deal, dateKey, onRestart }: PlayDealProps) {
         Score {game.score}
         {dateKey && ` · Best ${Math.max(dailyBest, game.score)}`}
       </p>
-      <Board grid={game.grid} selected={game.selected} match={match} onTap={handleTap} />
-      {over ? (
+      <Board grid={game.grid} selected={game.selected} match={match} hint={game.hint} won={won} onTap={handleTap} />
+
+      {won ? (
+        <div className="flex flex-col items-center gap-3">
+          <p className="text-lg font-bold">Board cleared! Score {game.score}.</p>
+          <button type="button" onClick={onNext} className={button} style={accent}>
+            Next deal
+          </button>
+        </div>
+      ) : over ? (
         <div className="flex flex-col items-center gap-3">
           <p className="font-semibold">No moves left. Final score {game.score}.</p>
-          <button type="button" onClick={onRestart} className="rounded-full px-5 py-2 font-semibold" style={{ background: "var(--accent)", color: "#ffffff" }}>
+          <button
+            type="button"
+            onClick={() => {
+              clearProgress(key);
+              onRestart();
+            }}
+            className={button}
+            style={accent}
+          >
             Play again
           </button>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => setGame((current) => addNumbers(current))}
-          disabled={addsLeft(game) <= 0}
-          className="self-center rounded-full px-5 py-2 font-semibold disabled:opacity-40"
-          style={{ background: "var(--accent)", color: "#ffffff" }}
-        >
-          Add numbers ({addsLeft(game)}/{ADD_ALLOWANCE})
-        </button>
+        <>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button type="button" onClick={() => setGame((current) => undo(current))} disabled={game.history.length === 0} className={button} style={accent}>
+              Undo
+            </button>
+            {game.hint ? (
+              <button type="button" onClick={() => setGame((current) => dismissHint(current))} className={button} style={accent}>
+                Dismiss hint
+              </button>
+            ) : (
+              <button type="button" onClick={() => setGame((current) => requestHint(current))} disabled={game.hintSpent} className={button} style={accent}>
+                Hint
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setGame((current) => addNumbers(current))}
+            disabled={addsLeft(game) <= 0}
+            className={`self-center ${button}`}
+            style={accent}
+          >
+            Add numbers ({addsLeft(game)}/{ADD_ALLOWANCE})
+          </button>
+        </>
       )}
     </>
   );
