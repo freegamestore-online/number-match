@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { ADD_ALLOWANCE, INITIAL_ROWS, COLS } from "./grid";
 import {
   addNumbers,
+  addsLeft,
   collapseEmptyRows,
-  createGame,
+  hasValidPair,
+  isGameOver,
   isValidPair,
   MATCH_POINTS,
+  startGame,
   tapCell,
   valuesMatch,
   type GameState,
@@ -14,8 +16,10 @@ import { parseGrid } from "../test/grid";
 
 const at = (row: number, col: number) => ({ row, col });
 
+const ROW = (digits: string) => [...digits].map(Number);
+
 function stateOf(rows: string[], extra: Partial<GameState> = {}): GameState {
-  return { grid: parseGrid(rows), selected: null, score: 0, addsLeft: ADD_ALLOWANCE, ...extra };
+  return { grid: parseGrid(rows), selected: null, score: 0, reserve: [], ...extra };
 }
 
 describe("valuesMatch", () => {
@@ -134,23 +138,41 @@ describe("tapCell", () => {
 });
 
 describe("addNumbers", () => {
-  it("appends a row of nine digits from 1 to 9", () => {
-    const state = createGame(() => 0);
-    const next = addNumbers(state, () => 0.99);
-    expect(next.grid).toHaveLength(INITIAL_ROWS + 1);
-    const row = next.grid[next.grid.length - 1]!;
-    expect(row).toHaveLength(COLS);
-    expect(row.every((cell) => cell !== null && cell >= 1 && cell <= 9)).toBe(true);
+  it("appends the next reserved row and removes it from the reserve", () => {
+    const reserve = [ROW("123456789"), ROW("987654321")];
+    const next = addNumbers(startGame(parseGrid(["........."]), reserve));
+    expect(next.grid).toHaveLength(2);
+    expect(next.grid[1]).toEqual(ROW("123456789"));
+    expect(next.reserve).toEqual([ROW("987654321")]);
   });
 
-  it("uses one of the allowance each time", () => {
-    const next = addNumbers(createGame(), () => 0.5);
-    expect(next.addsLeft).toBe(ADD_ALLOWANCE - 1);
+  it("reports the allowance as the reserve left", () => {
+    const state = startGame(parseGrid(["........."]), [ROW("123456789"), ROW("123456789")]);
+    expect(addsLeft(state)).toBe(2);
+    expect(addsLeft(addNumbers(state))).toBe(1);
   });
 
-  it("does nothing once the allowance is used up", () => {
-    const empty = stateOf(["........."], { addsLeft: 0 });
+  it("does nothing once the reserve is used up", () => {
+    const empty = stateOf(["........."]);
     expect(addNumbers(empty)).toBe(empty);
+  });
+});
+
+describe("isGameOver", () => {
+  it("is false while a pair is still playable", () => {
+    expect(isGameOver(stateOf(["5.5......"]))).toBe(false);
+  });
+
+  it("is false while reserve rows can still be added", () => {
+    expect(isGameOver(stateOf(["1.2......"], { reserve: [ROW("123456789")] }))).toBe(false);
+  });
+
+  it("is true when no pair is playable and no reserve is left", () => {
+    expect(isGameOver(stateOf(["1.2......"]))).toBe(true);
+  });
+
+  it("is true when the board is empty and no reserve is left", () => {
+    expect(hasValidPair(parseGrid([".........", "........."]))).toBe(false);
   });
 });
 
@@ -175,12 +197,12 @@ describe("collapseEmptyRows", () => {
   });
 });
 
-describe("createGame", () => {
-  it("starts with the initial rows, nothing selected, and full allowance", () => {
-    const game = createGame(() => 0);
-    expect(game.grid).toHaveLength(INITIAL_ROWS);
+describe("startGame", () => {
+  it("starts with the given grid and reserve, nothing selected, score zero", () => {
+    const game = startGame(parseGrid(["12345678."]), [ROW("123456789")]);
+    expect(game.grid).toHaveLength(1);
     expect(game.selected).toBeNull();
     expect(game.score).toBe(0);
-    expect(game.addsLeft).toBe(ADD_ALLOWANCE);
+    expect(addsLeft(game)).toBe(1);
   });
 });

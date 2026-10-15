@@ -1,5 +1,5 @@
 import { isAdjacent } from "./adjacency";
-import { ADD_ALLOWANCE, cellAt, createGrid, randomRow, type Cell, type Grid, type Pos, type Random } from "./grid";
+import { cellAt, type Cell, type Grid, type Pos } from "./grid";
 
 /** Points for one matched pair. */
 export const MATCH_POINTS = 10;
@@ -7,17 +7,21 @@ export const MATCH_POINTS = 10;
 /** The sum that also makes a pair match. */
 export const MATCH_SUM = 10;
 
-/** Game state. The grid is the only board; `selected` is the first tap of a pair. */
+/**
+ * Game state. `grid` is the board; `selected` is the first tap of a pair.
+ * `reserve` holds the rows that "Add numbers" releases, in order. It is fixed
+ * by the deal, so the same deal always plays the same way.
+ */
 export interface GameState {
   grid: Grid;
   selected: Pos | null;
   score: number;
-  addsLeft: number;
+  reserve: Cell[][];
 }
 
-/** A new game: an initial grid, nothing selected, full allowance. */
-export function createGame(random: Random = Math.random): GameState {
-  return { grid: createGrid(undefined, random), selected: null, score: 0, addsLeft: ADD_ALLOWANCE };
+/** A new game from a deal's initial grid and reserved rows. Nothing selected, score zero. */
+export function startGame(grid: Grid, reserve: Cell[][]): GameState {
+  return { grid, selected: null, score: 0, reserve };
 }
 
 /** True when two digits match: equal values, or summing to ten. */
@@ -54,12 +58,33 @@ export function tapCell(state: GameState, pos: Pos): GameState {
   return { ...state, grid, selected: null, score: state.score + MATCH_POINTS };
 }
 
-/**
- * Append one row of random digits. Does nothing when no allowance is left.
- */
-export function addNumbers(state: GameState, random: Random = Math.random): GameState {
-  if (state.addsLeft <= 0) return state;
-  return { ...state, grid: [...state.grid, randomRow(random)], addsLeft: state.addsLeft - 1 };
+/** Times "Add numbers" can still be used. */
+export function addsLeft(state: GameState): number {
+  return state.reserve.length;
+}
+
+/** Append the next reserved row. Does nothing when no reserve is left. */
+export function addNumbers(state: GameState): GameState {
+  const [next, ...rest] = state.reserve;
+  if (next === undefined) return state;
+  return { ...state, grid: [...state.grid, next], reserve: rest };
+}
+
+/** True when no reserved row is left to add and no two cells match. */
+export function isGameOver(state: GameState): boolean {
+  return addsLeft(state) === 0 && !hasValidPair(state.grid);
+}
+
+/** True when at least one legal pair exists on the grid. */
+export function hasValidPair(grid: Grid): boolean {
+  const cells: Pos[] = [];
+  grid.forEach((row, r) => row.forEach((cell, c) => cell !== null && cells.push({ row: r, col: c })));
+  for (let i = 0; i < cells.length; i++) {
+    for (let j = i + 1; j < cells.length; j++) {
+      if (isValidPair(grid, cells[i]!, cells[j]!)) return true;
+    }
+  }
+  return false;
 }
 
 /** True when every cell in the row is cleared. */
