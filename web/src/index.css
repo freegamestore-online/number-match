@@ -92,3 +92,26 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* Score pop-up from the feel kit. ScorePop sets the transform and opacity per frame. */
+.score-pop {
+  position: absolute;
+  z-index: 800;
+  pointer-events: none;
+  font-weight: 700;
+  font-size: 1.5rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* A fully cleared row shrinks away before the grid collapses it. */
+.row-clearing {
+  animation: row-collapse 240ms ease-in forwards;
+}
+
+@keyframes row-collapse {
+  to {
+    opacity: 0;
+    transform: scaleY(0);
+  }
+}
