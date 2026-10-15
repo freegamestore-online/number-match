@@ -30,6 +30,7 @@ type DealChoice = "daily" | number;
 export default function App() {
   const [choice, setChoice] = useState<DealChoice>("daily");
   const [round, setRound] = useState(0);
+  const [score, setScore] = useState(0);
   const [, setDay] = useState(0);
   const dateKey = localDateKey();
 
@@ -50,14 +51,13 @@ export default function App() {
   };
 
   return (
-    <GameShell topbar={<GameTopbar title="Number Match" score={0} />}>
-      <GameAuth />
-      <main className="mx-auto flex w-full max-w-md flex-col gap-4 p-4">
+    <GameShell topbar={<GameTopbar title="Number Match" score={score} actions={<GameAuth />} />}>
+      <main className="mx-auto flex h-full w-full max-w-md flex-col gap-2 p-2">
         <div className="flex items-center justify-between gap-2 text-sm" style={{ color: "var(--muted)" }}>
-          <button type="button" onClick={() => setChoice("daily")} disabled={isDaily} className="font-semibold disabled:opacity-40">
+          <button type="button" onClick={() => setChoice("daily")} disabled={isDaily} className="min-h-11 font-semibold disabled:opacity-40">
             Daily deal ({dateKey})
           </button>
-          <button type="button" onClick={next} className="font-semibold">
+          <button type="button" onClick={next} className="min-h-11 font-semibold">
             Deal #{deal.number} · next
           </button>
         </div>
@@ -67,6 +67,7 @@ export default function App() {
           dateKey={isDaily ? dateKey : null}
           onRestart={() => setRound((r) => r + 1)}
           onNext={next}
+          onScore={setScore}
         />
       </main>
     </GameShell>
@@ -79,9 +80,11 @@ interface PlayDealProps {
   dateKey: string | null;
   onRestart: () => void;
   onNext: () => void;
+  /** Reports the live score up to the topbar. */
+  onScore: (score: number) => void;
 }
 
-function PlayDeal({ deal, dateKey, onRestart, onNext }: PlayDealProps) {
+function PlayDeal({ deal, dateKey, onRestart, onNext, onScore }: PlayDealProps) {
   const key = progressKey(deal, dateKey);
   const [game, setGame] = useState<GameState>(() => loadProgress(key, deal));
   const [match, setMatch] = useState<MatchEvent | null>(null);
@@ -94,6 +97,10 @@ function PlayDeal({ deal, dateKey, onRestart, onNext }: PlayDealProps) {
   useEffect(() => {
     saveProgress(key, game);
   }, [key, game]);
+
+  useEffect(() => {
+    onScore(game.score);
+  }, [game.score, onScore]);
 
   // A game that is already over when it loads (a reload) was submitted earlier,
   // so only a game that ends during play submits its score.
@@ -130,17 +137,20 @@ function PlayDeal({ deal, dateKey, onRestart, onNext }: PlayDealProps) {
     return () => clearTimeout(id);
   }, [hasEmpty, game.grid]);
 
-  const button = "rounded-full px-5 py-2 font-semibold disabled:opacity-40";
+  const button = "min-h-11 whitespace-nowrap rounded-full px-5 py-2 font-semibold disabled:opacity-40";
   const accent = { background: "var(--accent)", color: "#ffffff" };
 
   return (
-    <>
-      <p className="text-center text-sm" style={{ color: "var(--muted)" }}>
+    <div className="play-area">
+      <p className="play-score text-center text-sm" style={{ color: "var(--muted)" }}>
         Score {game.score}
         {dateKey && ` · Best ${Math.max(dailyBest, game.score)}`}
       </p>
-      <Board grid={game.grid} selected={game.selected} match={match} hint={game.hint} won={won} onTap={handleTap} />
+      <div className="play-board">
+        <Board grid={game.grid} selected={game.selected} match={match} hint={game.hint} won={won} onTap={handleTap} />
+      </div>
 
+      <div className="play-controls flex flex-col items-center gap-3">
       {won ? (
         <div className="flex flex-col items-center gap-3">
           <p className="text-lg font-bold">Board cleared! Score {game.score}.</p>
@@ -190,6 +200,7 @@ function PlayDeal({ deal, dateKey, onRestart, onNext }: PlayDealProps) {
           </button>
         </>
       )}
-    </>
+      </div>
+    </div>
   );
 }

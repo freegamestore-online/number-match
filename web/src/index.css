@@ -93,6 +93,64 @@ body {
   }
 }
 
+/*
+ * Play layout. The board is sized from the viewport so every row fits on screen.
+ * It can grow to 8 rows (5 dealt, up to 3 added), so the height budget is for 8.
+ * In short landscape the board sits left and the controls sit right.
+ */
+.board {
+  --cell: min(calc((min(100vw, 28rem) - 2rem - 32px) / 9), calc((100dvh - 17rem) / 8));
+}
+
+.board-row {
+  display: grid;
+  grid-template-columns: repeat(9, var(--cell));
+  gap: 4px;
+  justify-content: center;
+}
+
+.board-cell {
+  width: var(--cell);
+  height: var(--cell);
+}
+
+.play-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+@media (orientation: landscape) and (max-height: 500px) {
+  .board {
+    --cell: min(calc((100dvh - 7rem) / 8), calc((50vw - 2rem - 32px) / 9));
+  }
+
+  .play-area {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    align-items: center;
+    justify-items: center;
+  }
+
+  .play-board {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .play-score {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .play-controls {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
 /* Score pop-up from the feel kit. ScorePop sets the transform and opacity per frame. */
 .score-pop {
   position: absolute;

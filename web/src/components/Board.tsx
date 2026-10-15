@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { ParticleLayer, type ParticleLayerHandle } from "../feel/ParticleLayer";
 import { ScorePop } from "../feel/ScorePop";
-import { COLS, type Grid, type Pos } from "../game/grid";
+import { type Grid, type Pos } from "../game/grid";
 import { isEmptyRow } from "../game/match";
+import { nearestCell, type CellCentre } from "./tapTarget";
 
 /** A match just cleared two cells. The id changes on every match so the effect runs again. */
 export interface MatchEvent {
@@ -57,6 +58,31 @@ export function Board({ grid, selected, match, hint, won, onTap }: BoardProps) {
     }
   }, [won]);
 
+  // One tap handler for the board. A pointer tap resolves to the nearest filled
+  // cell, so taps in the gaps between cells still land. A keyboard activation
+  // (detail 0) uses the focused cell directly.
+  function handleClick(event: React.MouseEvent<HTMLDivElement>) {
+    const board = boardRef.current;
+    if (!board) return;
+    if (event.detail === 0) {
+      const target = (event.target as HTMLElement).closest<HTMLElement>("[data-pos]");
+      const [row, col] = (target?.dataset.pos ?? "").split("-").map(Number);
+      if (row !== undefined && col !== undefined && !Number.isNaN(row) && !Number.isNaN(col)) onTap({ row, col });
+      return;
+    }
+    const rect = board.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const centres: CellCentre[] = [];
+    board.querySelectorAll<HTMLElement>("[data-pos]:not(:disabled)").forEach((cell) => {
+      const [row, col] = cell.dataset.pos!.split("-").map(Number) as [number, number];
+      const cellRect = cell.getBoundingClientRect();
+      centres.push({ row, col, x: cellRect.left - rect.left + cellRect.width / 2, y: cellRect.top - rect.top + cellRect.height / 2 });
+    });
+    const pos = nearestCell(centres, x, y);
+    if (pos) onTap(pos);
+  }
+
   useEffect(() => {
     const board = boardRef.current;
     if (!match || !board) return;
@@ -75,12 +101,11 @@ export function Board({ grid, selected, match, hint, won, onTap }: BoardProps) {
   }, [match]);
 
   return (
-    <div ref={boardRef} className="relative flex flex-col gap-1.5">
+    <div ref={boardRef} className="board relative flex flex-col items-center gap-1" onClick={handleClick}>
       {grid.map((row, r) => (
         <div
           key={r}
-          className={`grid gap-1.5 ${isEmptyRow(row) ? "row-clearing" : ""}`}
-          style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}
+          className={`board-row ${isEmptyRow(row) ? "row-clearing" : ""}`}
         >
           {row.map((cell, c) => {
             const isSelected = selected?.row === r && selected?.col === c;
@@ -94,8 +119,7 @@ export function Board({ grid, selected, match, hint, won, onTap }: BoardProps) {
                 data-hint={isHinted || undefined}
                 disabled={cell === null}
                 aria-label={cell === null ? `Cleared, row ${r + 1}, column ${c + 1}` : `${cell}, row ${r + 1}, column ${c + 1}`}
-                onClick={() => onTap({ row: r, col: c })}
-                className="aspect-square min-h-10 rounded-lg text-lg font-bold"
+                className={`board-cell rounded-lg font-bold ${cell === null ? "pointer-events-none" : ""}`}
                 style={{
                   background: cell === null ? "transparent" : isSelected ? "var(--accent)" : isHinted ? "var(--accent-soft)" : "var(--panel)",
                   color: isSelected ? "#ffffff" : "var(--ink)",
